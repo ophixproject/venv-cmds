@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "venv-cmds"
-version = "2026.05.24.02"
+version = "2026.05.24.03"
 description = "List available console commands in the active Python environment, check for package updates"
 readme = "README.md"
 requires-python = ">=3.7"
