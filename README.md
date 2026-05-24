@@ -37,8 +37,6 @@ venv-cmds check_updates --include-install-date    # add an 'Installed on' column
 venv-cmds check_updates --timeout 60              # per-package query timeout in seconds (default: 30)
 venv-cmds check_updates --output-file updates.txt # write pinned requirements file for updates
 venv-cmds check_updates --output-file -           # write pinned requirements to stdout
-venv-cmds check_updates --fast                    # check all packages in parallel (faster for large envs)
-venv-cmds check_updates --fast --workers 32       # parallel with a custom worker count (default: 16)
 ```
 
 When `--output-file` is used the output file contains `package==version` lines
