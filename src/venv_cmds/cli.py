@@ -2,7 +2,9 @@ import argparse
 import re
 import subprocess
 import sys
+import threading
 import types
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -89,12 +91,61 @@ def _get_install_date(dist):
     return "—"
 
 
+def _fetch_serial(packages, timeout, no_progress):
+    total = len(packages)
+    results = []
+    prev_len = 0
+    for i, (name, installed, install_date) in enumerate(packages, 1):
+        if not no_progress:
+            msg = "  Checking {} ({}/{})...".format(name, i, total)
+            print(msg.ljust(prev_len), end="\r", file=sys.stderr, flush=True)
+            prev_len = len(msg)
+        latest = _get_latest_version(name, timeout)
+        status = _STATUS_UNAVAILABLE if latest is None else _compare(installed, latest)
+        results.append((name, installed, install_date, latest or "—", status))
+    if not no_progress:
+        print(" " * prev_len, end="\r", file=sys.stderr)
+    return results
+
+
+def _fetch_parallel(packages, timeout, no_progress):
+    total = len(packages)
+    lock = threading.Lock()
+    counter = [0]
+    prev_len = [0]
+    result_map = {}
+
+    def _fetch_one(name, installed, install_date):
+        latest = _get_latest_version(name, timeout)
+        status = _STATUS_UNAVAILABLE if latest is None else _compare(installed, latest)
+        with lock:
+            counter[0] += 1
+            if not no_progress:
+                msg = "  Checked {}/{}...".format(counter[0], total)
+                print(msg.ljust(prev_len[0]), end="\r", file=sys.stderr, flush=True)
+                prev_len[0] = len(msg)
+        return name.lower(), (name, installed, install_date, latest or "—", status)
+
+    workers = min(total, 16)
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(_fetch_one, n, v, d) for n, v, d in packages]
+        for future in as_completed(futures):
+            key, value = future.result()
+            result_map[key] = value
+
+    if not no_progress:
+        print(" " * prev_len[0], end="\r", file=sys.stderr)
+
+    return [result_map[k] for k in sorted(result_map.keys())]
+
+
 def cmd_check_updates(args):
     timeout = args.timeout
     output_file = args.output_file
     include_install_date = args.include_install_date
     updates_only = args.updates_only
     no_progress = args.no_progress
+    fast = args.fast
 
     # Collect all installed distributions, deduplicated by normalised name.
     seen = {}
@@ -106,24 +157,11 @@ def cmd_check_updates(args):
             seen[name.lower()] = (name, version, install_date)
 
     packages = sorted(seen.values(), key=lambda x: x[0].lower())
-    total = len(packages)
 
-    results = []
-    prev_len = 0
-    for i, (name, installed, install_date) in enumerate(packages, 1):
-        if not no_progress:
-            msg = "  Checking {} ({}/{})...".format(name, i, total)
-            print(msg.ljust(prev_len), end="\r", file=sys.stderr, flush=True)
-            prev_len = len(msg)
-        latest = _get_latest_version(name, timeout)
-        if latest is None:
-            status = _STATUS_UNAVAILABLE
-        else:
-            status = _compare(installed, latest)
-        results.append((name, installed, install_date, latest or "—", status))
-
-    if not no_progress:
-        print(" " * prev_len, end="\r", file=sys.stderr)  # clear progress line
+    if fast:
+        results = _fetch_parallel(packages, timeout, no_progress)
+    else:
+        results = _fetch_serial(packages, timeout, no_progress)
 
     # When writing requirements to stdout, redirect table output to stderr
     # so the two streams stay separate and piping works cleanly.
@@ -250,6 +288,12 @@ COMMANDS = {
                 "action": "store_true",
                 "default": False,
                 "help": "Suppress the per-package progress line written to stderr. Useful when running from cron.",
+            },
+            {
+                "name": "--fast",
+                "action": "store_true",
+                "default": False,
+                "help": "Check all packages in parallel using a thread pool. Significantly faster for large environments.",
             },
         ],
         "handler": cmd_check_updates,
