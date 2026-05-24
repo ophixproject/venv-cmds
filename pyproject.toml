@@ -43,6 +43,7 @@ test = ["pytest"]
 
 [project.urls]
 Homepage = "https://ophix.io"
+Documentation = "https://github.com/ophixproject/venv-cmds#readme"
 Source = "https://github.com/ophixproject/venv-cmds"
 
 [tool.setuptools.packages.find]
