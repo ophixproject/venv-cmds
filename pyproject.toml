@@ -12,7 +12,7 @@ license = "MIT"
 keywords = ["venv", "python", "cli", "console scripts"]
 
 authors = [
-    {name = "Paul McGowan", email = "maintainer@imagodataflow.com"}
+    {name = "Paul McGowan", email = "paul.mcgowan@ophix.io"}
 ]
 
 classifiers = [
