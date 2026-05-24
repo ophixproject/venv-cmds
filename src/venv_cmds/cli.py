@@ -108,7 +108,7 @@ def _fetch_serial(packages, timeout, no_progress):
     return results
 
 
-def _fetch_parallel(packages, timeout, no_progress):
+def _fetch_parallel(packages, timeout, no_progress, workers):
     total = len(packages)
     lock = threading.Lock()
     counter = [0]
@@ -126,8 +126,7 @@ def _fetch_parallel(packages, timeout, no_progress):
                 prev_len[0] = len(msg)
         return name.lower(), (name, installed, install_date, latest or "—", status)
 
-    workers = min(total, 16)
-    with ThreadPoolExecutor(max_workers=workers) as executor:
+    with ThreadPoolExecutor(max_workers=min(total, workers)) as executor:
         futures = [executor.submit(_fetch_one, n, v, d) for n, v, d in packages]
         for future in as_completed(futures):
             key, value = future.result()
@@ -159,7 +158,7 @@ def cmd_check_updates(args):
     packages = sorted(seen.values(), key=lambda x: x[0].lower())
 
     if fast:
-        results = _fetch_parallel(packages, timeout, no_progress)
+        results = _fetch_parallel(packages, timeout, no_progress, args.workers)
     else:
         results = _fetch_serial(packages, timeout, no_progress)
 
@@ -294,6 +293,13 @@ COMMANDS = {
                 "action": "store_true",
                 "default": False,
                 "help": "Check all packages in parallel using a thread pool. Significantly faster for large environments.",
+            },
+            {
+                "name": "--workers",
+                "type": int,
+                "default": 16,
+                "metavar": "N",
+                "help": "Number of parallel workers when using --fast (default: 16).",
             },
         ],
         "handler": cmd_check_updates,
