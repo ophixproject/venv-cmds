@@ -110,9 +110,15 @@ def _fetch_serial(packages, timeout, no_progress):
 
 def _fetch_parallel(packages, timeout, no_progress, workers):
     total = len(packages)
+    effective_workers = min(total, workers)
+    if not no_progress:
+        msg = "  Checking {} packages using {} workers...".format(total, effective_workers)
+        print(msg, end="\r", file=sys.stderr, flush=True)
+        prev_len = [len(msg)]
+    else:
+        prev_len = [0]
     lock = threading.Lock()
     counter = [0]
-    prev_len = [0]
     result_map = {}
 
     def _fetch_one(name, installed, install_date):
@@ -126,7 +132,7 @@ def _fetch_parallel(packages, timeout, no_progress, workers):
                 prev_len[0] = len(msg)
         return name.lower(), (name, installed, install_date, latest or "—", status)
 
-    with ThreadPoolExecutor(max_workers=min(total, workers)) as executor:
+    with ThreadPoolExecutor(max_workers=effective_workers) as executor:
         futures = [executor.submit(_fetch_one, n, v, d) for n, v, d in packages]
         for future in as_completed(futures):
             key, value = future.result()
