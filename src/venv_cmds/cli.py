@@ -1,5 +1,5 @@
 import argparse
-import re
+import json
 import subprocess
 import sys
 import types
@@ -10,8 +10,6 @@ if sys.version_info >= (3, 8):
     from importlib.metadata import distributions, entry_points
 else:
     from importlib_metadata import distributions, entry_points
-
-from packaging.version import InvalidVersion, Version
 
 from venv_cmds._version import __version__
 
@@ -49,34 +47,21 @@ def cmd_list(args):
             print(ep.name)
 
 
-_STATUS_OK          = "ok"
-_STATUS_UPDATE      = "update"
-_STATUS_UNAVAILABLE = "unavailable"
-_STATUS_UNKNOWN     = "unknown"
+_STATUS_OK     = "ok"
+_STATUS_UPDATE = "update"
 
 
-def _get_latest_version(pip_name, timeout):
-    try:
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "index", "versions", pip_name],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        match = re.search(r"Available versions:\s*(.+)", result.stdout)
-        if match:
-            versions = [v.strip() for v in match.group(1).split(",") if v.strip()]
-            return versions[0] if versions else None
-    except Exception:
-        pass
-    return None
-
-
-def _compare(installed, latest):
-    try:
-        return _STATUS_UPDATE if Version(latest) > Version(installed) else _STATUS_OK
-    except InvalidVersion:
-        return _STATUS_UNKNOWN if installed != latest else _STATUS_OK
+def _pip_list_json(extra_args, timeout):
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "list", "--format=json"] + extra_args,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    if result.returncode != 0:
+        print("Error: pip list failed:\n{}".format(result.stderr.strip()), file=sys.stderr)
+        sys.exit(1)
+    return json.loads(result.stdout)
 
 
 def _get_install_date(dist):
@@ -96,81 +81,86 @@ def cmd_check_updates(args):
     updates_only = args.updates_only
     no_progress = args.no_progress
 
-    # Collect all installed distributions, deduplicated by normalised name.
-    seen = {}
-    for dist in distributions():
-        name = dist.metadata.get("Name")
-        version = dist.metadata.get("Version") or "unknown"
-        if name and name.lower() not in seen:
-            install_date = _get_install_date(dist) if include_install_date else None
-            seen[name.lower()] = (name, version, install_date)
+    if not no_progress:
+        print("  Querying index...", end="\r", file=sys.stderr, flush=True)
 
-    packages = sorted(seen.values(), key=lambda x: x[0].lower())
-    total = len(packages)
+    outdated = _pip_list_json(["--outdated"], timeout)
 
-    results = []
-    prev_len = 0
-    for i, (name, installed, install_date) in enumerate(packages, 1):
-        if not no_progress:
-            msg = "  Checking {} ({}/{})...".format(name, i, total)
-            print(msg.ljust(prev_len), end="\r", file=sys.stderr, flush=True)
-            prev_len = len(msg)
-        latest = _get_latest_version(name, timeout)
-        status = _STATUS_UNAVAILABLE if latest is None else _compare(installed, latest)
-        results.append((name, installed, install_date, latest or "—", status))
+    if updates_only:
+        # Single pip call sufficient — no need to fetch the full package list.
+        all_pkgs = outdated
+    else:
+        all_pkgs = _pip_list_json([], timeout)
 
     if not no_progress:
-        print(" " * prev_len, end="\r", file=sys.stderr)
+        print("                   ", end="\r", file=sys.stderr)
+
+    outdated_map = {p["name"].lower(): p["latest_version"] for p in outdated}
+
+    # Build install-date lookup from importlib.metadata if needed.
+    if include_install_date:
+        dist_map = {}
+        for dist in distributions():
+            name = dist.metadata.get("Name")
+            if name:
+                dist_map[name.lower()] = dist
+
+    results = []
+    for pkg in sorted(all_pkgs, key=lambda p: p["name"].lower()):
+        name      = pkg["name"]
+        installed = pkg["version"]
+        key       = name.lower()
+        latest    = outdated_map.get(key)
+        status    = _STATUS_UPDATE if latest else _STATUS_OK
+        if not latest:
+            latest = installed
+        install_date = _get_install_date(dist_map[key]) if include_install_date and key in dist_map else None
+        results.append((name, installed, install_date, latest, status))
 
     # When writing requirements to stdout, redirect table output to stderr
     # so the two streams stay separate and piping works cleanly.
     out = sys.stderr if output_file == "-" else sys.stdout
 
     # --- Table ---------------------------------------------------------------
-    _labels = {
-        _STATUS_OK:          "OK",
-        _STATUS_UPDATE:      "UPDATE AVAILABLE",
-        _STATUS_UNAVAILABLE: "unavailable",
-        _STATUS_UNKNOWN:     "unknown",
-    }
+    col_pkg  = "Package"
+    col_inst = "Installed"
+    col_date = "Installed on"
+    col_lat  = "Latest"
+    col_stat = "Status"
 
-    col_pkg   = "Package"
-    col_inst  = "Installed"
-    col_date  = "Installed on"
-    col_lat   = "Latest"
-    col_stat  = "Status"
+    label = {_STATUS_OK: "OK", _STATUS_UPDATE: "UPDATE AVAILABLE"}
 
     rows = [
-        (name, inst, idate, lat, _labels.get(st, st), st)
+        (name, inst, idate, lat, label[st], st)
         for name, inst, idate, lat, st in results
     ]
 
-    w_pkg  = max(len(col_pkg),  max(len(r[0]) for r in rows))
-    w_inst = max(len(col_inst), max(len(r[1]) for r in rows))
-    w_lat  = max(len(col_lat),  max(len(r[3]) for r in rows))
-    w_stat = max(len(col_stat), max(len(r[4]) for r in rows))
-
-    if include_install_date:
-        w_date = max(len(col_date), max(len(r[2] or "—") for r in rows))
-        fmt     = "{{:<{}}}  {{:<{}}}  {{:<{}}}  {{:<{}}}  {{}}".format(w_pkg, w_inst, w_date, w_lat)
-        divider = "  ".join(["-" * w_pkg, "-" * w_inst, "-" * w_date, "-" * w_lat, "-" * w_stat])
-        header  = fmt.format(col_pkg, col_inst, col_date, col_lat, col_stat)
-    else:
-        fmt     = "{{:<{}}}  {{:<{}}}  {{:<{}}}  {{}}".format(w_pkg, w_inst, w_lat)
-        divider = "  ".join(["-" * w_pkg, "-" * w_inst, "-" * w_lat, "-" * w_stat])
-        header  = fmt.format(col_pkg, col_inst, col_lat, col_stat)
-
-    updates = [r for r in rows if r[5] == _STATUS_UPDATE]
+    updates      = [r for r in rows if r[5] == _STATUS_UPDATE]
     display_rows = updates if updates_only else rows
 
     if display_rows:
+        w_pkg  = max(len(col_pkg),  max(len(r[0]) for r in display_rows))
+        w_inst = max(len(col_inst), max(len(r[1]) for r in display_rows))
+        w_lat  = max(len(col_lat),  max(len(r[3]) for r in display_rows))
+        w_stat = max(len(col_stat), max(len(r[4]) for r in display_rows))
+
+        if include_install_date:
+            w_date  = max(len(col_date), max(len(r[2] or "—") for r in display_rows))
+            fmt     = "{{:<{}}}  {{:<{}}}  {{:<{}}}  {{:<{}}}  {{}}".format(w_pkg, w_inst, w_date, w_lat)
+            divider = "  ".join(["-" * w_pkg, "-" * w_inst, "-" * w_date, "-" * w_lat, "-" * w_stat])
+            header  = fmt.format(col_pkg, col_inst, col_date, col_lat, col_stat)
+        else:
+            fmt     = "{{:<{}}}  {{:<{}}}  {{:<{}}}  {{}}".format(w_pkg, w_inst, w_lat)
+            divider = "  ".join(["-" * w_pkg, "-" * w_inst, "-" * w_lat, "-" * w_stat])
+            header  = fmt.format(col_pkg, col_inst, col_lat, col_stat)
+
         print(header, file=out)
         print(divider, file=out)
-        for name, inst, idate, lat, label, raw_status in display_rows:
+        for name, inst, idate, lat, lbl, _ in display_rows:
             if include_install_date:
-                print(fmt.format(name, inst, idate or "—", lat, label), file=out)
+                print(fmt.format(name, inst, idate or "—", lat, lbl), file=out)
             else:
-                print(fmt.format(name, inst, lat, label), file=out)
+                print(fmt.format(name, inst, lat, lbl), file=out)
         print(file=out)
 
     if not updates_only:
@@ -180,10 +170,6 @@ def cmd_check_updates(args):
             print("All packages are up to date.", file=out)
     elif updates:
         print("{} update(s) available.".format(len(updates)), file=out)
-
-    unavailable = sum(1 for r in rows if r[5] == _STATUS_UNAVAILABLE)
-    if unavailable:
-        print("{} package(s) could not be checked (not found in configured index or index unreachable).".format(unavailable), file=out)
 
     if output_file:
         if not updates:
