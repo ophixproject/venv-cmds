@@ -232,7 +232,7 @@ COMMANDS = {
                 "name": "--no-progress",
                 "action": "store_true",
                 "default": False,
-                "help": "Suppress the per-package progress line written to stderr. Useful when running from cron.",
+                "help": "Suppress the status message written to stderr while querying the index. Useful when running from cron.",
             },
         ],
         "handler": cmd_check_updates,

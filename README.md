@@ -32,7 +32,7 @@ without any extra configuration.
 ```bash
 venv-cmds check_updates
 venv-cmds check_updates --updates-only            # only show packages with updates
-venv-cmds check_updates --no-progress             # suppress per-package progress (cron-safe)
+venv-cmds check_updates --no-progress             # suppress status message on stderr (cron-safe)
 venv-cmds check_updates --include-install-date    # add an 'Installed on' column
 venv-cmds check_updates --timeout 60              # per-package query timeout in seconds (default: 30)
 venv-cmds check_updates --output-file updates.txt # write pinned requirements file for updates
