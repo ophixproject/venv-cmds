@@ -1,1 +1,2 @@
-__version__ = "2026.05.28.02"
+__version__ = "2026.06.10.01"
+__package_name__ = "venv-cmds"
