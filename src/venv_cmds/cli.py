@@ -192,6 +192,7 @@ def cmd_check_updates(args):
 _CONFIG = types.SimpleNamespace(
     prog="venv-cmds",
     description="Inspect the active Python environment.",
+    epilog="Tab completion: run activate-global-python-argcomplete once per user account to enable.",
     version=__version__,
 )
 
@@ -248,7 +249,7 @@ COMMANDS = {
 # ---------------------------------------------------------------------------
 
 def build_parser(config, commands):
-    parser = argparse.ArgumentParser(prog=config.prog, description=config.description)
+    parser = argparse.ArgumentParser(prog=config.prog, description=config.description, epilog=getattr(config, "epilog", None))
     parser.add_argument("--version", action="version", version="{} {}".format(config.prog, config.version))
 
     subparsers = parser.add_subparsers(dest="command")
