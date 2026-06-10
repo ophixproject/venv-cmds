@@ -1,3 +1,4 @@
+# PYTHON_ARGCOMPLETE_OK
 import argparse
 import json
 import subprocess
@@ -5,6 +6,8 @@ import sys
 import types
 from datetime import datetime
 from pathlib import Path
+
+import argcomplete
 
 if sys.version_info >= (3, 8):
     from importlib.metadata import distributions, entry_points
@@ -279,6 +282,7 @@ def make_main(config, commands):
 
     def main():
         parser = build_parser(config, commands)
+        argcomplete.autocomplete(parser)
         args = parser.parse_args()
 
         if not hasattr(args, "func"):
