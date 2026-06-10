@@ -196,7 +196,7 @@ COMMANDS = {
     "list": {
         "help": "List console_scripts entry points in the active environment (default).",
         "arguments": [
-            {"name": "--details", "action": "store_true", "help": "Show package name alongside each command."},
+            {"name": ["-d", "--details"], "action": "store_true", "help": "Show package name alongside each command."},
         ],
         "handler": cmd_list,
     },
@@ -204,32 +204,32 @@ COMMANDS = {
         "help": "Check all installed packages against the configured pip index for available updates.",
         "arguments": [
             {
-                "name": "--timeout",
+                "name": ["-t", "--timeout"],
                 "type": int,
                 "default": 30,
                 "metavar": "SECONDS",
                 "help": "Per-package pip query timeout in seconds (default: 30).",
             },
             {
-                "name": "--output-file",
+                "name": ["-o", "--output-file"],
                 "metavar": "FILE",
                 "default": None,
                 "help": "Write packages with available updates to FILE in requirements.txt format.",
             },
             {
-                "name": "--updates-only",
+                "name": ["-u", "--updates-only"],
                 "action": "store_true",
                 "default": False,
                 "help": "Only show packages with available updates. Produces no output when everything is current.",
             },
             {
-                "name": "--include-install-date",
+                "name": ["-i", "--include-install-date"],
                 "action": "store_true",
                 "default": False,
                 "help": "Add an 'Installed on' column showing when each package was installed (approximated from dist-info mtime).",
             },
             {
-                "name": "--no-progress",
+                "name": ["-n", "--no-progress"],
                 "action": "store_true",
                 "default": False,
                 "help": "Suppress the status message written to stderr while querying the index. Useful when running from cron.",
@@ -257,7 +257,10 @@ def build_parser(config, commands):
         for arg in spec.get("arguments", []):
             arg = arg.copy()
             arg_name = arg.pop("name")
-            sub.add_argument(arg_name, **arg)
+            if isinstance(arg_name, list):
+                sub.add_argument(*arg_name, **arg)
+            else:
+                sub.add_argument(arg_name, **arg)
 
         for group_spec in spec.get("mutually_exclusive_groups", []):
             group = sub.add_mutually_exclusive_group(required=group_spec.get("required", False))
@@ -282,7 +285,9 @@ def make_main(config, commands):
             # No subcommand given — run the default.
             sub_spec = commands[default_cmd]
             for arg in sub_spec.get("arguments", []):
-                attr = arg["name"].lstrip("-").replace("-", "_")
+                raw = arg["name"]
+                long_name = next((n for n in reversed(raw) if n.startswith("--")), raw[-1]) if isinstance(raw, list) else raw
+                attr = long_name.lstrip("-").replace("-", "_")
                 if not hasattr(args, attr):
                     setattr(args, attr, arg.get("default", None))
             sub_spec["handler"](args)
