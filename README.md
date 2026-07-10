@@ -29,6 +29,10 @@ which have updates available. Respects all pip index sources configured for
 the environment — public PyPI, private indexes, and local mirrors all work
 without any extra configuration.
 
+If `pip` isn't importable in the current venv (e.g. one created with
+`uv venv` without `--seed`), falls back automatically to `uv pip list`
+targeting this same interpreter, provided `uv` is installed on `PATH`.
+
 ```bash
 venv-cmds check_updates
 venv-cmds check_updates --updates-only            # only show packages with updates

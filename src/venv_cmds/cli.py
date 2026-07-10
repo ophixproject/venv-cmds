@@ -1,6 +1,7 @@
 # PYTHON_ARGCOMPLETE_OK
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 import types
@@ -55,12 +56,24 @@ _STATUS_UPDATE = "update"
 
 
 def _pip_list_json(extra_args, timeout):
+    # Falls back to `uv pip list` if pip isn't importable in this environment
+    # (e.g. a venv created with `uv venv` without --seed). --python targets
+    # this exact interpreter rather than relying on VIRTUAL_ENV being set.
     result = subprocess.run(
         [sys.executable, "-m", "pip", "list", "--format=json"] + extra_args,
         capture_output=True,
         text=True,
         timeout=timeout,
     )
+    if result.returncode != 0:
+        uv_path = shutil.which("uv")
+        if uv_path:
+            result = subprocess.run(
+                [uv_path, "pip", "list", "--format=json", "--python", sys.executable] + extra_args,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
     if result.returncode != 0:
         print("Error: pip list failed:\n{}".format(result.stderr.strip()), file=sys.stderr)
         sys.exit(1)
