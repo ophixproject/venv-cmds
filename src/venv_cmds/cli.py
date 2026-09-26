@@ -300,17 +300,12 @@ def make_main(config, commands):
         args = parser.parse_args()
 
         if not hasattr(args, "func"):
-            # No subcommand given — run the default.
-            sub_spec = commands[default_cmd]
-            for arg in sub_spec.get("arguments", []):
-                raw = arg["name"]
-                long_name = next((n for n in reversed(raw) if n.startswith("--")), raw[-1]) if isinstance(raw, list) else raw
-                attr = long_name.lstrip("-").replace("-", "_")
-                if not hasattr(args, attr):
-                    setattr(args, attr, arg.get("default", None))
-            sub_spec["handler"](args)
-        else:
-            args.func(args)
+            # No subcommand given — reparse as the default command so argparse
+            # fills in the same defaults it would for an explicit invocation
+            # (e.g. store_true flags default to False, not None).
+            args = parser.parse_args([default_cmd])
+
+        args.func(args)
 
     return main
 
