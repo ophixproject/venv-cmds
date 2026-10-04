@@ -59,8 +59,16 @@ def _pip_list_json(extra_args, timeout):
     # Falls back to `uv pip list` if pip isn't importable in this environment
     # (e.g. a venv created with `uv venv` without --seed). --python targets
     # this exact interpreter rather than relying on VIRTUAL_ENV being set.
+    #
+    # --no-cache-dir / --no-cache: a corrupted local HTTP cache entry (e.g.
+    # from a connection that dropped mid-download) can make pip/uv replay the
+    # same truncated response on every subsequent call indefinitely, with no
+    # way to recover short of a manual `pip cache purge`. This is purely an
+    # outdated-package listing, run periodically (often unattended via cron),
+    # so the extra network cost of always re-fetching is cheap insurance
+    # against that class of bug recurring silently.
     result = subprocess.run(
-        [sys.executable, "-m", "pip", "list", "--format=json"] + extra_args,
+        [sys.executable, "-m", "pip", "--no-cache-dir", "list", "--format=json"] + extra_args,
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -69,7 +77,7 @@ def _pip_list_json(extra_args, timeout):
         uv_path = shutil.which("uv")
         if uv_path:
             result = subprocess.run(
-                [uv_path, "pip", "list", "--format=json", "--python", sys.executable] + extra_args,
+                [uv_path, "--no-cache", "pip", "list", "--format=json", "--python", sys.executable] + extra_args,
                 capture_output=True,
                 text=True,
                 timeout=timeout,
